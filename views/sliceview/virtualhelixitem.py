@@ -60,6 +60,7 @@ class VirtualHelixItem(QGraphicsEllipseItem):
         # handle the label specific stuff
         self._label = self.createLabel()
         self.setNumber()
+        self.arrows = list()
         self.createArrow()
 
         self._controller = VirtualHelixItemController(self, modelVirtualHelix)
@@ -96,37 +97,108 @@ class VirtualHelixItem(QGraphicsEllipseItem):
     ###
 
     def createLabel(self):
+        """ Adds a label with the helix number in the center of the helix item. """
         label = QGraphicsSimpleTextItem("%d" % self._virtualHelix.number())
         label.setFont(self._font)
-        label.setZValue(self._ZVALUE)
+        label.setZValue(self._ZVALUE+10)
         label.setParentItem(self)
         return label
     # end def
 
-    def createArrow(self):
-        rad = self._radius
+    def genericArrow(self, color=None, alpha=None, width=2, rad=None, zvalue=3, hidden=True, rotation=0):
+        """
+        Creates a generic arrow/marker/hand to indicate backbone twist location.
+        """
+        rad = rad or self._radius
         pen = QPen()
-        pen.setWidth(3)
-        color = QColor(Qt.blue)
-        color.setAlphaF(0.25)
+        pen.setWidth(width)
+        color = QColor(color or Qt.blue)
+        color.setAlphaF(alpha or 0.25)
         pen.setBrush(color)
+        # If we create the arrow depending on even/odd parity, then we can use the
+        # same code for updatearrow for arrows on all helices.
+        # (However, it does feel like a hack...)
         if self._virtualHelix.isEvenParity():
-            arrow = QGraphicsLineItem(rad, rad, 2*rad, rad, self)
+            # If line width is 3, then the arrow marker looks better if it only has length of 0.9*rad.
+            arrow = QGraphicsLineItem(rad*1.1, rad, 0.95*2*rad, rad, self)
         else:
-            arrow = QGraphicsLineItem(0, rad, rad, rad, self)
+            # was: 0, rad, rad, rad
+            arrow = QGraphicsLineItem(0.1*rad, rad, 0.9*rad, rad, self)
         arrow.setTransformOriginPoint(rad, rad)
-        arrow.setZValue(400)
+        arrow.setZValue(self._ZVALUE+zvalue)
         arrow.setPen(pen)
-        self.arrow = arrow
-        self.arrow.hide()
+        if hidden:
+            arrow.hide()
+        if rotation:
+            arrow.setRotation(rotation)
+        return arrow
+
+
+    def createArrow(self):
+        """
+        Creates a marker/arrow/hand to indicate backbone twist location.
+        Update: Adjusted scaffold marker and added marker for staple strand backbone.
+        Question: What part of the nucleotide should be used for the marker?
+        * The 5' phosphate? No, that is not really representative of the nucleotide.
+        * The ribose C5'?
+        * The ribose (average/center)? Or the ribose C1'?
+        * The ribose C3'? Yes, this is actually a pretty good point.
+        The "angle" of the minor groove depends a lot on this.
+        Structurally, it is probably the C5' which is the most relevant,
+        since the 5' phosphate should be completely flexible.
+        However, when making a normal 'holliday' crossover between anti-parallel strands
+        and you want to see which bases are opposite, then you have connection between
+        C5' to C3' (not C5' to C5'). This would argue for using the ribose center.
+        For consistency, I guess you could add both?
+        Note that the phosphate between C3 and C5 accounts for as much angular rotation as the ribose.
+        A further note: The minor/major groove will, of cause, depend on how you look at the
+        helix. In cadnano, the slice view is viewed from left to right relative
+        to the path view. This means that helices with even parity looks different in the
+        sliceview than helices with odd parity.
+        """
+        # For even parity, scafC5 is above scafC3, and vice versa for stap.
+        # For even parity, it should be: scafC5 > scafC3 = stapC3 > stapC5.
+        direction = 1 if self._virtualHelix.isEvenParity() else -1
+        arrowspecs = [#dict(color=Qt.black, alpha=0.5, width=0.5, rad=self._radius, zvalue=0),      # marker
+                      dict(color=Qt.blue, alpha=0.8, width=3, rad=self._radius, zvalue=direction*4),       # scafC3
+                      dict(color=Qt.darkGray, alpha=0.8, width=3, rad=self._radius, zvalue=direction*6),   # scafC5
+                      dict(color=Qt.red, alpha=0.8, width=3, rad=self._radius, zvalue=direction*4, rotation=190),  # stapC3
+                      dict(color=Qt.darkGray, alpha=0.8, width=3, rad=self._radius, zvalue=direction*2, rotation=175), # stapC5
+                      ]
+        arrowattrnames = ['arrow_scafC3', 'arrow_scafC5', 'arrow_stapC3', 'arrow_stapC5']
+        for arrowname, arrowspec in zip(arrowattrnames, arrowspecs):
+            arrow = self.genericArrow(**arrowspec)
+            self.arrows.append(arrow)
+            setattr(self, arrowname, arrow)
+        # How much each arrow should be offset compared to the "global" virtualhelix angle at bp index:
+        # Global angle seems to be: "scaffold, if scaffold were opposite staple". Yes.
+        # For even parity stapC5' is more CW than stapC3'
+        # For a part._twistOffset = -12, (190, 175) seems good for stapC3/C5.
+        self.arrow_angle_offsets = [-40, -25, 190, 175]  # [scafC3, scafC5, stapC3, stapC5]
+        # angle C3-C3 is 180-10-40=130 degrees, C5-C5 is 180+5-25=160, average is 145.
+        # (used to be 125, 155 and 140 avg, but that seems a bit much...)
     # end def
 
     def updateArrow(self, idx):
+        """
+        Update: Adjusted scaffold marker and added marker for staple strand backbone.
+        Note that currently, I have also adjusted part._twistOffset to make it right.
+        Not sure if this is the right way to tweak it?
+        """
         part = self.part()
-        tpb = part._twistPerBase
+        tpb = part._twistPerBase # degrees
         angle = idx*tpb
-        self.arrow.setRotation(angle + part._twistOffset)
-    # end def
+        isevenparity = self._virtualHelix.isEvenParity()
+        # the overall rotation of a helix is usually specified by the staple strand
+        # (which usually makes the majority of crossovers)
+        # The angle between the phosphate of a base pair between antiparallel strands is
+        # approx 140 degrees (minor groove). It might be less, but let's assume 140 for now.
+        # The "overall cadnano basepair angle" seems to be specified by
+        # "where the scaffold backbone would be, if it was right opposite (180 degree) from the staple strand."
+        direction = 1 if isevenparity else -1
+        for arrow, arrow_offset in zip(self.arrows, self.arrow_angle_offsets):
+            arrow.setRotation(angle + part._twistOffset - arrow_offset*direction)
+        # end def
 
     def setNumber(self):
         """docstring for setNumber"""
@@ -168,11 +240,13 @@ class VirtualHelixItem(QGraphicsEllipseItem):
             self.setPen(self._usePen)
             self.setBrush(self._useBrush)
             self.updateArrow(idx)
-            self.arrow.show()
+            for arrow in self.arrows:
+                arrow.show()
         else:
             self.setPen(self._outOfSlicePen)
             self.setBrush(self._outOfSliceBrush)
-            self.arrow.hide()
+            for arrow in self.arrows:
+                arrow.hide()
     # end def
 
     ############################ User Interaction ############################
