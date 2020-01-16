@@ -759,7 +759,7 @@ class DocumentController():
             assert(not self._hasNoAssociatedFile)
             filename = self.filename()
         try:
-            if util.isWindows():
+            if isinstance(filename, (list, tuple)):
                 filename = filename[0]
             with open(filename, 'w') as f:
                 helixOrderList = self.win.pathroot.getSelectedPartOrderedVHList()
