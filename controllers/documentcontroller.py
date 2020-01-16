@@ -419,24 +419,29 @@ class DocumentController():
 
         # Proceed with staple export.
         fname = self.filename()
-        if fname == None:
+        if fname is None:
             directory = "."
+            suggested_filename = None
         else:
             directory = QFileInfo(fname).path()
+            fnroot, ext = os.path.splitext(str(fname))
+            suggested_filename = f"{fnroot}.staples.csv"
         if util.isWindows():  # required for native looking file window
             fname = QFileDialog.getSaveFileName(
-                            self.win,
-                            "%s - Export As" % QApplication.applicationName(),
-                            directory,
-                            "(*.csv)")
+                self.win,  # parent widget
+                "%s - Export As" % QApplication.applicationName(),  # Window title/caption
+                suggested_filename or directory,  # Directory or default filename
+                "(*.csv)"   # File filter
+            )
             self.saveStaplesDialog = None
             self.exportStaplesCallback(fname)
         else:  # access through non-blocking callback
             fdialog = QFileDialog(
-                            self.win,
-                            "%s - Export As" % QApplication.applicationName(),
-                            directory,
-                            "(*.csv)")
+                self.win,
+                "%s - Export As" % QApplication.applicationName(),
+                suggested_filename or directory,
+                "(*.csv)"
+            )
             fdialog.setAcceptMode(QFileDialog.AcceptSave)
             fdialog.setWindowFlags(Qt.Sheet)
             fdialog.setWindowModality(Qt.WindowModal)
@@ -590,8 +595,8 @@ class DocumentController():
         # Return if fname is '', None, or a directory path
         if not fname or fname is None or os.path.isdir(fname):
             return False
-        if not fname.lower().endswith(".txt"):
-            fname += ".txt"
+        if not (fname.lower().endswith(".txt") or fname.lower().endswith(".csv")):
+            fname += ".csv"
         if self.saveStaplesDialog is not None:
             self.saveStaplesDialog.filesSelected.disconnect(self.exportStaplesCallback)
             # manual garbage collection to prevent hang (in osx)
