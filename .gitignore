@@ -1,6 +1,8 @@
 .DS_Store
 __pycache__
 
+# Ignore plugins (manually add/track built-in cadnano plugin files)
+plugins/
 
 # IDE/editor settings:
 .idea/
