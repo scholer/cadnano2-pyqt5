@@ -275,6 +275,8 @@ class DocumentController():
         # clear/reset the view!
         
         if len(self._document.parts()) == 0:
+            print("actionNewSlot: Current document has no parts; no need to create a new document. "
+                  "Instead, just add a new part (Honeycomb or Square) to this empty document.")
             return  # no parts
         if self.maybeSave() == False:
             return  # user canceled in maybe save
